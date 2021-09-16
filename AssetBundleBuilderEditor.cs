@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,217 +7,270 @@ using UnityEngine;
 
 public class AssetBundleBuilderEditor : EditorWindow
 {
-	static readonly Dictionary<Object, string> scenesToBeBundled = new Dictionary<Object, string>();
+    static readonly Dictionary<Object, string> scenesToBeBundled = new Dictionary<Object, string>();
 
-	[MenuItem("Window/AssetBundle Builder")]
-	public static void Open()
-	{
-		GetWindow<AssetBundleBuilderEditor>(false, "DragDrop", true);
-	}
+    Object sceneToBeRemoved;
 
-	private void OnGUI()
-	{
-		if (Event.current.type == EventType.DragUpdated)
-		{
-			DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
-			Event.current.Use();
-		}
-		else if (Event.current.type == EventType.DragPerform)
-		{
-			// To consume drag data.
-			DragAndDrop.AcceptDrag();
 
-			// Unity Assets including folder.
-			if (DragAndDrop.paths.Length == DragAndDrop.objectReferences.Length)
-			{
-				for (int i = 0; i < DragAndDrop.objectReferences.Length; i++)
-				{
-					Object obj = DragAndDrop.objectReferences[i];
-					string path = DragAndDrop.paths[i];
-					//Debug.Log(obj.GetType().Name);
+    static bool forceRebuild = false;
+    static BuildTarget buildTarget = BuildTarget.Android;
+    static string assemblyDefinitionFileName = "";
+    static bool enableElixrLogin = false;
+    static string userName;
+    static string password;
+    static string email;
+    static string organizationName;
+    static string organizationId;
 
-					if(obj.GetType().Name.Equals("SceneAsset"))
+    [MenuItem("Window/AssetBundle Builder")]
+    public static void Open()
+    {
+        GetWindow<AssetBundleBuilderEditor>(false, "DragDrop", true);
+    }
+
+    private void OnGUI()
+    {
+        Rect drop_area = GUILayoutUtility.GetRect(0.0f, 50.0f, GUILayout.ExpandWidth(true));
+        //GUI.Box(drop_area, "Add Trigger");
+        var centeredLabelStyle = GUIStyle.none;
+        centeredLabelStyle.normal.textColor = Color.white;
+        centeredLabelStyle.fontStyle = FontStyle.Bold;
+        centeredLabelStyle.alignment = TextAnchor.MiddleCenter;
+        GUI.Label(drop_area, "+ Drop Scene Asset Here", centeredLabelStyle);
+
+
+
+        if (Event.current.type == EventType.DragUpdated)
+        {
+            DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+            Event.current.Use();
+        }
+        else if (Event.current.type == EventType.DragPerform)
+        {
+            if (!drop_area.Contains(Event.current.mousePosition))
+                return;
+
+            // To consume drag data.
+            DragAndDrop.AcceptDrag();
+
+            // Unity Assets
+            if (DragAndDrop.paths.Length == DragAndDrop.objectReferences.Length)
+            {
+                for (int i = 0; i < DragAndDrop.objectReferences.Length; i++)
+                {
+                    Object obj = DragAndDrop.objectReferences[i];
+                    string path = DragAndDrop.paths[i];
+                    //Debug.Log(obj.GetType().Name);
+
+                    if (obj.GetType().Name.Equals("SceneAsset"))
                     {
-						Debug.Log("You added a SceneAsset");
-						if(!scenesToBeBundled.ContainsKey(obj))
+                        if (!scenesToBeBundled.ContainsKey(obj))
                         {
-							scenesToBeBundled.Add(obj, path);
-						}
+                            scenesToBeBundled.Add(obj, path);
+                        }
                     }
                     else
                     {
-						Debug.Log("Please add a SceneAsset");
-					}
+                        Debug.Log("Please add a SceneAsset");
+                    }
 
-				}
-			}
-			else
+                }
+            }
+            else
             {
-				Debug.Log("Please add a SceneAsset");
-			}
+                Debug.Log("Please add a SceneAsset");
+            }
         }
 
-		foreach(var sceneObj in scenesToBeBundled)
+        HorizontalLine(Color.grey);
+
+        EditorGUILayout.Space();
+
+        GUILayout.Label(" Scenes to be Bundled",centeredLabelStyle);
+
+        EditorGUILayout.Space();
+
+        if(scenesToBeBundled.Count == 0)
         {
-			EditorGUILayout.BeginHorizontal();
-			GUILayout.Label(sceneObj.Key.name);
-			if(GUILayout.Button("Delete"))
-            {
-				scenesToBeBundled.Remove(sceneObj.Key);
-            }
-			EditorGUILayout.EndHorizontal();
+            GUILayout.Label("No scenes added to be bundled");
         }
 
-		if (GUILayout.Button("Build AssetBundle and Assembly"))
-		{
-			if(scenesToBeBundled.Count > 0)
+        foreach (var sceneObj in scenesToBeBundled)
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label(sceneObj.Key.name);
+            if (GUILayout.Button("Delete"))
             {
-				List<AssetBundleBuild> buildMap = new List<AssetBundleBuild>();
-				foreach (KeyValuePair<Object, string> entry in scenesToBeBundled)
-				{
-					buildMap.Add(new AssetBundleBuild()
-					{
-						assetBundleName = entry.Key.name,
-						assetNames = new string[]
-						{
-							entry.Value
-						}
-					});
-				}
-				string assetBundleDirectory = $"CreatedAssetBundles/{EditorUserBuildSettings.activeBuildTarget}";
-				if (!Directory.Exists(assetBundleDirectory))
-				{
-					Directory.CreateDirectory(assetBundleDirectory);
-				}
-
-				CompilationPipeline.compilationFinished += OnCompilationFinished;
-				BuildAssetBundleOptions options = BuildAssetBundleOptions.None;
-
-				options |= BuildAssetBundleOptions.ForceRebuildAssetBundle;
-
-				AssetBundleManifest assetBundleManifest = BuildPipeline.BuildAssetBundles(assetBundleDirectory, buildMap.ToArray(), options, EditorUserBuildSettings.activeBuildTarget);
-
-			}
-			else
-            {
-				Debug.Log("No content to create Asset bundle");
+                sceneToBeRemoved = sceneObj.Key;
             }
-		}
-	}
+            EditorGUILayout.EndHorizontal();
+        }
 
-	static void OnCompilationFinished(object sender)
-	{
-		CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        if (sceneToBeRemoved)
+        {
+            scenesToBeBundled.Remove(sceneToBeRemoved);
+            sceneToBeRemoved = null;
+        }
 
-		var assemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player);
+        EditorGUILayout.Space();
+        HorizontalLine(Color.grey);
 
-		string dllFile = $"CreatedAssetBundles/{EditorUserBuildSettings.activeBuildTarget}/SCENE_ASSEMBLY_DEF.dll";
+        //Build Target DropDown
+        buildTarget = (BuildTarget)EditorGUILayout.EnumPopup("Select the Build target", buildTarget);
 
-		var assembly = assemblies.FirstOrDefault(e => e.name.Equals("SCENE_ASSEMBLY_DEF"));
+        //Force Rebuild Toggle
+        forceRebuild = EditorGUILayout.Toggle("Force Rebuild", forceRebuild);
 
-		Debug.Log(assembly.outputPath);
+        //Assembly definition file name
+        assemblyDefinitionFileName = EditorGUILayout.TextField("Assembly Definition File Name", assemblyDefinitionFileName);
 
-		if (File.Exists(dllFile))
-		{
-			File.Delete(dllFile);
-		}
+        EditorGUILayout.Space();
+        HorizontalLine(Color.grey);
 
-		File.Copy(assembly.outputPath, dllFile);
-	}
+        //Elixr login 
+        GUILayout.Label(" Login and Upload to Elixr", centeredLabelStyle);
+        EditorGUILayout.Space();
+
+        //Force Rebuild Toggle
+        enableElixrLogin = EditorGUILayout.Toggle("Login & Upload to Elixr", enableElixrLogin);
+        EditorGUILayout.Space();
+
+        GUI.enabled = enableElixrLogin;
+
+        EditorGUILayout.TextField("UserName ", userName);
+        EditorGUILayout.TextField("Email ", email);
+        EditorGUILayout.TextField("Password ", password);
+        EditorGUILayout.TextField("Organization Name ", organizationName);
+        EditorGUILayout.TextField("Organization ID ", organizationId);
+        EditorGUILayout.Space();
+
+        GUI.enabled = true;
+
+
+        GUI.enabled = scenesToBeBundled.Count > 0;
+        //Build Assembly and Assetbundle Button
+        if (GUILayout.Button("Build AssetBundle and Assembly"))
+        {
+            bool startBundling = true;
+            if (assemblyDefinitionFileName.Equals(""))
+            {
+                 startBundling = EditorUtility.DisplayDialog("Assembly Definition File name not specified",
+                    "Assembly Definition File name is not specified. Do you want to continue ?",
+                    "Yes",
+                    "No");
+            }
+            if (scenesToBeBundled.Count > 0 && startBundling)
+            {
+                List<AssetBundleBuild> buildMap = new List<AssetBundleBuild>();
+                foreach (KeyValuePair<Object, string> entry in scenesToBeBundled)
+                {
+                    buildMap.Add(new AssetBundleBuild()
+                    {
+                        assetBundleName = entry.Key.name,
+                        assetNames = new string[]
+                        {
+                            entry.Value
+                        }
+                    });
+                }
+                string assetBundleDirectory = $"CreatedAssetBundles/{buildTarget}";
+                if (!Directory.Exists(assetBundleDirectory))
+                {
+                    Directory.CreateDirectory(assetBundleDirectory);
+                }
+
+                CompilationPipeline.compilationFinished += OnCompilationFinished;
+                BuildAssetBundleOptions options = BuildAssetBundleOptions.None;
+
+                options |= BuildAssetBundleOptions.ForceRebuildAssetBundle;
+
+                AssetBundleManifest assetBundleManifest = BuildPipeline.BuildAssetBundles(assetBundleDirectory, buildMap.ToArray(), options, EditorUserBuildSettings.activeBuildTarget);
+
+            }
+            GUI.enabled = true;
+        }
+    }
+
+    static void OnCompilationFinished(object sender)
+    {
+        if(!assemblyDefinitionFileName.Equals(""))
+        {
+            CompilationPipeline.compilationFinished -= OnCompilationFinished;
+
+            var assemblies = CompilationPipeline.GetAssemblies(AssembliesType.Player);
+
+            string dllFile = $"CreatedAssetBundles/{buildTarget}/{assemblyDefinitionFileName}.dll";
+
+            var assembly = assemblies.FirstOrDefault(e => e.name.Equals(assemblyDefinitionFileName));
+
+            if(assembly != null)
+            {
+
+                if (File.Exists(dllFile))
+                {
+                    File.Delete(dllFile);
+                }
+
+                File.Copy(assembly.outputPath, dllFile);
+            }
+            else
+            {
+                Debug.Log("Assembly not found");
+            }
+        }
+    }
+
+    //Note: this is the provided BuildTarget enum with some entries removed as they are invalid in the dropdown
+    internal enum BuildTarget
+    {
+        //NoTarget = -2,        --doesn't make sense
+        //iPhone = -1,          --deprecated
+        //BB10 = -1,            --deprecated
+        //MetroPlayer = -1,     --deprecated
+        StandaloneOSXUniversal = 2,
+        //StandaloneOSXIntel = 4,
+        StandaloneWindows = 5,
+        //WebPlayer = 6,
+        //WebPlayerStreamed = 7,
+        //iOS = 9,
+        //PS3 = 10,
+        //XBOX360 = 11,
+        Android = 13,
+        StandaloneLinux = 17,
+        StandaloneWindows64 = 19,
+        //WebGL = 20,
+        //WSAPlayer = 21,
+        //StandaloneLinux64 = 24,
+        //StandaloneLinuxUniversal = 25,
+        //WP8Player = 26,
+        //StandaloneOSXIntel64 = 27,
+        //BlackBerry = 28,
+        //Tizen = 29,
+        //PSP2 = 30,
+        //PS4 = 31,
+        //PSM = 32,
+        //XboxOne = 33,
+        //SamsungTV = 34,
+        //N3DS = 35,
+        //WiiU = 36,
+        //tvOS = 37,
+        //Switch = 38
+    }
+
+    // create your style
+    static GUIStyle horizontalLine;
+ 
+    // utility method
+    static void HorizontalLine(Color color)
+    {
+        horizontalLine = new GUIStyle();
+        horizontalLine.normal.background = EditorGUIUtility.whiteTexture;
+        horizontalLine.margin = new RectOffset(0, 0, 4, 4);
+        horizontalLine.fixedHeight = 1;
+
+        var c = GUI.color;
+        GUI.color = color;
+        GUILayout.Box(GUIContent.none, horizontalLine);
+        GUI.color = c;
+    }
 }
-
-
-// using System.Collections;
-//using System.Collections.Generic;
-//using UnityEditor;
-//using UnityEngine;
-
-//public class AssetBundleBuilderEditor : EditorWindow
-//{
-//    [MenuItem("Window/AssetBundle Builder")]
-//	public static void Open()
-//	{
-//		GetWindow<AssetBundleBuilderEditor>(false, "DragDrop", true);
-//	}
-
-//	private void OnGUI()
-//	{
-//		if (Event.current.type == EventType.DragUpdated)
-//		{
-//			DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
-//			Event.current.Use();
-//		}
-//		else if (Event.current.type == EventType.DragPerform)
-//		{
-//			// To consume drag data.
-//			DragAndDrop.AcceptDrag();
-
-//			// GameObjects from hierarchy.
-//			if (DragAndDrop.paths.Length == 0 && DragAndDrop.objectReferences.Length > 0)
-//			{
-//				Debug.Log("GameObject");
-//				foreach (Object obj in DragAndDrop.objectReferences)
-//				{
-//					Debug.Log("- " + obj);
-//				}
-//			}
-//			// Object outside project. It mays from File Explorer (Finder in OSX).
-//			else if (DragAndDrop.paths.Length > 0 && DragAndDrop.objectReferences.Length == 0)
-//			{
-//				Debug.Log("File");
-//				foreach (string path in DragAndDrop.paths)
-//				{
-//					Debug.Log("- " + path);
-//				}
-//			}
-//			// Unity Assets including folder.
-//			else if (DragAndDrop.paths.Length == DragAndDrop.objectReferences.Length)
-//			{
-//				Debug.Log("UnityAsset");
-//				for (int i = 0; i < DragAndDrop.objectReferences.Length; i++)
-//				{
-//					Object obj = DragAndDrop.objectReferences[i];
-//					string path = DragAndDrop.paths[i];
-//					Debug.Log(obj.GetType().Name);
-
-//					// Folder.
-//					if (obj is DefaultAsset)
-//					{
-//						Debug.Log(path);
-//					}
-//					// C# or JavaScript.
-//					else if (obj is MonoScript)
-//					{
-//						Debug.Log(path + "\n" + obj);
-//					}
-//					else if (obj is Texture2D)
-//					{
-
-//					}
-
-//				}
-//			}
-//			// Log to make sure we cover all cases.
-//			else
-//			{
-//				Debug.Log("Out of reach");
-//				Debug.Log("Paths:");
-//				foreach (string path in DragAndDrop.paths)
-//				{
-//					Debug.Log("- " + path);
-//				}
-
-//				Debug.Log("ObjectReferences:");
-//				foreach (Object obj in DragAndDrop.objectReferences)
-//				{
-//					Debug.Log("- " + obj);
-//				}
-//			}
-//		}
-
-//		if(GUILayout.Button("Click Me"))
-//        {
-//			Debug.Log("Clicked the button");
-//        }
-//	}
-//}
