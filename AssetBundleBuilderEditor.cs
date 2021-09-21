@@ -22,6 +22,25 @@ public class AssetBundleBuilderEditor : EditorWindow
     static string organizationName;
     static string organizationId;
 
+    static string assetBundleDirectory = "";
+
+    GUIContent compressionContent;
+    internal enum CompressOptions
+    {
+        Uncompressed = 0,
+        StandardCompression,
+        ChunkBasedCompression,
+    }
+    GUIContent[] compressionGUIOptions =
+    {
+            new GUIContent("No Compression"),
+            new GUIContent("Standard Compression (LZMA)"),
+            new GUIContent("Chunk Based Compression (LZ4)")
+    };
+    int[] compressionValues = { 0, 1, 2 };
+
+    static CompressOptions compression = CompressOptions.StandardCompression;
+
     [MenuItem("Window/AssetBundle Builder")]
     public static void Open()
     {
@@ -118,6 +137,20 @@ public class AssetBundleBuilderEditor : EditorWindow
         //Build Target DropDown
         buildTarget = (BuildTarget)EditorGUILayout.EnumPopup("Select the Build target", buildTarget);
 
+
+        //Compression dropdown
+        compressionContent = new GUIContent("Compression", "Choose no compress, standard (LZMA), or chunk based (LZ4)");
+        CompressOptions cmp = (CompressOptions)EditorGUILayout.IntPopup(
+                        compressionContent,
+                        (int)compression,
+                        compressionGUIOptions,
+                        compressionValues);
+        if (cmp != compression)
+        {
+            compression = cmp;
+        }
+
+
         //Force Rebuild Toggle
         forceRebuild = EditorGUILayout.Toggle("Force Rebuild", forceRebuild);
 
@@ -173,7 +206,7 @@ public class AssetBundleBuilderEditor : EditorWindow
                         }
                     });
                 }
-                string assetBundleDirectory = $"CreatedAssetBundles/{buildTarget}";
+                assetBundleDirectory = $"CreatedAssetBundles/{buildTarget}";
                 if (!Directory.Exists(assetBundleDirectory))
                 {
                     Directory.CreateDirectory(assetBundleDirectory);
@@ -182,10 +215,18 @@ public class AssetBundleBuilderEditor : EditorWindow
                 CompilationPipeline.compilationFinished += OnCompilationFinished;
                 BuildAssetBundleOptions options = BuildAssetBundleOptions.None;
 
-                options |= BuildAssetBundleOptions.ForceRebuildAssetBundle;
+                if(forceRebuild)
+                {
+                    options |= BuildAssetBundleOptions.ForceRebuildAssetBundle;
+                }
+
+                if (compression == CompressOptions.Uncompressed)
+                    options |= BuildAssetBundleOptions.UncompressedAssetBundle;
+                else if (compression == CompressOptions.ChunkBasedCompression)
+                    options |= BuildAssetBundleOptions.ChunkBasedCompression;
 
                 AssetBundleManifest assetBundleManifest = BuildPipeline.BuildAssetBundles(assetBundleDirectory, buildMap.ToArray(), options, EditorUserBuildSettings.activeBuildTarget);
-
+                RenameAssetBundles();
             }
             GUI.enabled = true;
         }
@@ -272,5 +313,18 @@ public class AssetBundleBuilderEditor : EditorWindow
         GUI.color = color;
         GUILayout.Box(GUIContent.none, horizontalLine);
         GUI.color = c;
+    }
+
+    static void RenameAssetBundles()
+    {
+        string[] files = Directory.GetFiles(assetBundleDirectory);
+
+        foreach (var a in files)
+        {
+            if (!a.Contains("."))
+            {
+                File.Move(a, a + ".unity3d");
+            }
+        }
     }
 }
